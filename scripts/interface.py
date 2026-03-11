@@ -2,19 +2,11 @@ import bpy
 import mido
 from collections import deque
 
-# ------------------------------------------------
-# CONFIG
-# ------------------------------------------------
-
 MIDI_PORT_NAME = 'IAC Driver Bus 1'
 
 MIDI_PPQ = 24
 STEPS_PER_BEAT = 2
 TICKS_PER_STEP = MIDI_PPQ // STEPS_PER_BEAT
-
-# ------------------------------------------------
-# RUNTIME STATE (THREAD SAFE)
-# ------------------------------------------------
 
 midi_queue = deque()
 tick_counter = 0
@@ -25,9 +17,7 @@ midi_out = None
 sequencers = {}
 note_state = {}   # (channel, note) -> bool
 
-# ------------------------------------------------
-# MIDI CALLBACK (BACKGROUND THREAD)
-# ------------------------------------------------
+# Runs every time a midi message is received 
 
 def midi_clock_callback(message):
     if message.type == 'clock':
@@ -38,10 +28,6 @@ def midi_clock_callback(message):
         midi_queue.append('start')
     elif message.type == 'stop':
         midi_queue.append('stop')
-
-# ------------------------------------------------
-# BLENDER MAIN THREAD
-# ------------------------------------------------
 
 def collect_sequencers():
     global sequencers
@@ -56,38 +42,39 @@ def update_sequencers(depsgraph):
         ob_eval = ob.evaluated_get(depsgraph)
         attrs = ob_eval.data.attributes
 
-        if 'note_on' not in attrs or 'midi_note' not in attrs:
+        if 'note_on' not in attrs:
+            print('skipping')
             continue
 
         note_on = bool(attrs['note_on'].data[0].value)
-        note = int(attrs['midi_note'].data[0].value)
+        note_off = bool(attrs['note_off'].data[0].value)
+        note_value = int(attrs['note_value'].data[0].value)
+        note_velocity = int(attrs['note_velocity'].data[0].value)
+
         channel = ob.midi_channel
 
-        key = (channel, note)
-        prev = note_state.get(key, False)
-
         # NOTE ON (rising edge)
-        if note_on and not prev:
+        if note_on and not note_off:
+            print(f'Note On: {note_value}')
             midi_out.send(
                 mido.Message(
                     'note_on',
                     channel=channel,
-                    note=note,
-                    velocity=100
+                    note=note_value,
+                    velocity=note_velocity
                 )
             )
 
         # NOTE OFF (falling edge)
-        elif not note_on and prev:
+        elif note_off and not note_on:
+            print(f'Note Off: {note_value}')
             midi_out.send(
                 mido.Message(
                     'note_off',
                     channel=channel,
-                    note=note
+                    note=note_value
                 )
             )
-
-        note_state[key] = note_on
 
 def advance_one_tick():
     global tick_counter
@@ -126,15 +113,13 @@ def process_midi_queue():
         elif msg == 'stop':
             pass
 
-    # ADVANCE ONCE PER RECEIVED CLOCK
+    # Advance once per recieved clock
     for _ in range(clocks):
         advance_one_tick()
 
     return 0.0
 
-# ------------------------------------------------
-# OPERATORS
-# ------------------------------------------------
+# Operators
 
 class StartMidiSync(bpy.types.Operator):
     """Start MIDI Sync"""
@@ -177,9 +162,6 @@ class StopMidiSync(bpy.types.Operator):
 
         return {'FINISHED'}
 
-# ------------------------------------------------
-# REGISTER
-# ------------------------------------------------
 
 def register():
     bpy.utils.register_class(StartMidiSync)
