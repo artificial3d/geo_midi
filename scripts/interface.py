@@ -53,9 +53,14 @@ def update_sequencers(depsgraph):
 
         channel = ob.midi_channel
 
+        key = (ob, channel)
+        previous_state = note_state.get(key, False)
+        #print(f'Previous: {previous_state}')
+
         # NOTE ON (rising edge)
-        if note_on and not note_off:
-            print(f'Note On: {note_value}')
+        if note_on and previous_state == "note_off":
+            print(f'Note On: {note_value}, Velocity: {note_velocity}')
+            note_state[key] = "note_on"
             midi_out.send(
                 mido.Message(
                     'note_on',
@@ -66,8 +71,10 @@ def update_sequencers(depsgraph):
             )
 
         # NOTE OFF (falling edge)
-        elif note_off and not note_on:
-            print(f'Note Off: {note_value}')
+        
+        elif note_off:
+            print(f'Note Off')
+            note_state[key] = "note_off"
             midi_out.send(
                 mido.Message(
                     'note_off',
@@ -75,6 +82,9 @@ def update_sequencers(depsgraph):
                     note=note_value
                 )
             )
+        else:
+            note_state[key] = "note_off"
+
 
 def advance_one_tick():
     global tick_counter
@@ -95,6 +105,8 @@ def advance_one_tick():
 def reset_transport():
     global tick_counter
     tick_counter = 0
+    
+    midi_out.reset()
 
     timer = bpy.data.objects.get('TIMER')
     if timer:
@@ -111,6 +123,7 @@ def process_midi_queue():
         elif msg == 'start':
             reset_transport()
         elif msg == 'stop':
+            reset_transport()
             pass
 
     # Advance once per recieved clock
@@ -155,6 +168,7 @@ class StopMidiSync(bpy.types.Operator):
             midi_clock_port = None
 
         if midi_out:
+            midi_out.reset()
             midi_out.close()
             midi_out = None
 
