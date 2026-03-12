@@ -15,7 +15,7 @@ midi_clock_port = None
 midi_out = None
 
 sequencers = {}
-note_state = {}   # (channel, note) -> bool
+note_state = {}   # (ob, channel, note) -> bool
 
 # Runs every time a midi message is received 
 
@@ -51,39 +51,40 @@ def update_sequencers(depsgraph):
         note_value = int(attrs['note_value'].data[0].value)
         note_velocity = int(attrs['note_velocity'].data[0].value)
 
-        channel = ob.midi_channel
+        channel = ob.get('_MIDI')
 
-        key = (ob, channel)
+        key = (ob, channel, note_value)
         previous_state = note_state.get(key, False)
-        #print(f'Previous: {previous_state}')
+        #print(f'Key: {key}, Previous: {previous_state}')
 
-        # NOTE ON (rising edge)
-        if note_on and previous_state == "note_off":
-            print(f'Note On: {note_value}, Velocity: {note_velocity}')
+        if note_on:
             note_state[key] = "note_on"
-            midi_out.send(
-                mido.Message(
-                    'note_on',
-                    channel=channel,
-                    note=note_value,
-                    velocity=note_velocity
+            if previous_state == "note_off" or previous_state == "unchanged":
+                print(f'Note On: {note_value}, Velocity: {note_velocity}')
+                midi_out.send(
+                    mido.Message(
+                        'note_on',
+                        channel=channel,
+                        note=note_value,
+                        velocity=note_velocity
+                    )
                 )
-            )
-
-        # NOTE OFF (falling edge)
+                continue
         
-        elif note_off:
-            print(f'Note Off')
+        if note_off:
             note_state[key] = "note_off"
-            midi_out.send(
-                mido.Message(
-                    'note_off',
-                    channel=channel,
-                    note=note_value
+            if previous_state == 'note_on' or previous_state == "unchanged":
+                print(f'Note Off')
+                midi_out.send(
+                    mido.Message(
+                        'note_off',
+                        channel=channel,
+                        note=note_value
+                    )
                 )
-            )
-        else:
-            note_state[key] = "note_off"
+                continue
+
+        note_state[key] = "unchanged"
 
 
 def advance_one_tick():
@@ -180,13 +181,6 @@ class StopMidiSync(bpy.types.Operator):
 def register():
     bpy.utils.register_class(StartMidiSync)
     bpy.utils.register_class(StopMidiSync)
-
-    bpy.types.Object.midi_channel = bpy.props.IntProperty(
-        name="MIDI Channel",
-        default=0,
-        min=0,
-        max=15
-    )
 
 def unregister():
     bpy.utils.unregister_class(StartMidiSync)
