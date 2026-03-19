@@ -15,7 +15,8 @@ midi_clock_port = None
 midi_out = None
 
 sequencers = {}
-note_state = {}   # (ob, channel, note) -> bool
+note_state = {}   # (ob, channel) -> bool
+previous_note = {}
 
 # Runs every time a midi message is received 
 
@@ -43,24 +44,50 @@ def update_sequencers(depsgraph):
         attrs = ob_eval.data.attributes
 
         if 'note_on' not in attrs:
-            print('skipping')
+            #print('skipping')
             continue
 
         note_on = bool(attrs['note_on'].data[0].value)
-        note_off = bool(attrs['note_off'].data[0].value)
         note_value = int(attrs['note_value'].data[0].value)
         note_velocity = int(attrs['note_velocity'].data[0].value)
 
         channel = ob.get('_MIDI')
 
-        key = (ob, channel, note_value)
+        key = (ob, channel)
         previous_state = note_state.get(key, False)
+        prev_note = previous_note.get(key, False)
+
         #print(f'Key: {key}, Previous: {previous_state}')
 
-        if note_on:
-            note_state[key] = "note_on"
-            if previous_state == "note_off" or previous_state == "unchanged":
+        if note_on and not previous_state:
+            print(f'Note On: {note_value}, Velocity: {note_velocity}')
+            midi_out.send(
+                mido.Message(
+                    'note_on',
+                    channel=channel,
+                    note=note_value,
+                    velocity=note_velocity
+                )
+            )
+        elif not note_on and previous_state:
+            print(f'Note Off')
+            midi_out.send(
+                mido.Message(
+                    'note_off',
+                    channel=channel,
+                    note=note_value
+                )
+            )
+        elif note_on and previous_state:
+            if note_value != prev_note:
                 print(f'Note On: {note_value}, Velocity: {note_velocity}')
+                midi_out.send(
+                    mido.Message(
+                        'note_off',
+                        channel=channel,
+                        note=prev_note
+                    )
+                )
                 midi_out.send(
                     mido.Message(
                         'note_on',
@@ -68,24 +95,10 @@ def update_sequencers(depsgraph):
                         note=note_value,
                         velocity=note_velocity
                     )
-                )
-                continue
-        
-        if note_off:
-            note_state[key] = "note_off"
-            if previous_state == 'note_on' or previous_state == "unchanged":
-                print(f'Note Off')
-                midi_out.send(
-                    mido.Message(
-                        'note_off',
-                        channel=channel,
-                        note=note_value
-                    )
-                )
-                continue
+            )
 
-        note_state[key] = "unchanged"
-
+        note_state[key] = note_on
+        previous_note[key] = note_value
 
 def advance_one_tick():
     global tick_counter
