@@ -48,7 +48,7 @@ def update_sequencers(depsgraph):
             continue
 
         note_on = bool(attrs['note_on'].data[0].value)
-        note_retrig = bool(attrs['note_retrig'].data[0].value)
+        #note_retrig = bool(attrs['note_retrig'].data[0].value)
         note_value = int(attrs['note_value'].data[0].value)
         note_velocity = int(attrs['note_velocity'].data[0].value)
 
@@ -61,7 +61,7 @@ def update_sequencers(depsgraph):
         #print(f'Key: {key}, Previous: {previous_state}')
 
         if note_on and not previous_state:
-            print(f'Note On: {note_value}, Velocity: {note_velocity}')
+            #print(f'Note On: {note_value}, Velocity: {note_velocity}')
             midi_out.send(
                 mido.Message(
                     'note_on',
@@ -71,7 +71,7 @@ def update_sequencers(depsgraph):
                 )
             )
         elif not note_on and previous_state:
-            print(f'Note Off')
+            #print(f'Note Off')
             midi_out.send(
                 mido.Message(
                     'note_off',
@@ -81,7 +81,7 @@ def update_sequencers(depsgraph):
             )
         elif note_on and previous_state:
             if note_value != prev_note:
-                print(f'Note Off')
+                #print(f'Note Off')
                 midi_out.send(
                     mido.Message(
                         'note_off',
@@ -89,7 +89,7 @@ def update_sequencers(depsgraph):
                         note=prev_note
                     )
                 )
-                print(f'Note On: {note_value}, Velocity: {note_velocity}')
+                #print(f'Note On: {note_value}, Velocity: {note_velocity}')
                 midi_out.send(
                     mido.Message(
                         'note_on',
