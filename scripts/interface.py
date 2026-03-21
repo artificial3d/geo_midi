@@ -148,6 +148,29 @@ def process_midi_queue():
 
     return 0.0
 
+# Interface
+
+class MidiPanel(bpy.types.Panel):
+    """Creates MIDI Panel in the Object properties window"""
+    bl_label = "Midi Panel"
+    bl_idname = "OBJECT_PT_midi"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Midi"
+
+    def draw(self, context):
+        global midi_clock_port, midi_out
+
+        layout = self.layout
+
+        row = layout.row()
+        row.operator("scene.start_midi_sync", icon='PLAY', text='Start MIDI')
+        row.operator("scene.stop_midi_sync", icon='CANCEL', text='Stop MIDI')
+
+        if midi_clock_port or midi_out:
+            row = layout.row()
+            row.operator("scene.midi_panic", icon='WARNING_LARGE', text='Panic')
+
 # Operators
 
 class StartMidiSync(bpy.types.Operator):
@@ -191,15 +214,36 @@ class StopMidiSync(bpy.types.Operator):
         print("MIDI sync stopped")
 
         return {'FINISHED'}
+    
+class MidiPanic(bpy.types.Operator):
+    """Send Midi Panic Signal when notes get stuck"""
+    bl_idname = "scene.midi_panic"
+    bl_label = "MIDI Panic"
 
+    def execute(self, context):
+        global midi_out
+
+        if midi_out:
+            midi_out.panic()
+
+        print("MIDI Panic")
+
+        return {'FINISHED'}
+
+classes = {
+    StartMidiSync,
+    StopMidiSync,
+    MidiPanel,
+    MidiPanic
+}
 
 def register():
-    bpy.utils.register_class(StartMidiSync)
-    bpy.utils.register_class(StopMidiSync)
+    for cls in classes:
+        bpy.utils.register_class(cls)
 
 def unregister():
-    bpy.utils.unregister_class(StartMidiSync)
-    bpy.utils.unregister_class(StopMidiSync)
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
 
 if __name__ == "__main__":
     register()
