@@ -3,14 +3,17 @@ import mido
 from collections import deque
 
 MIDI_PORT_NAME = 'IAC Driver Bus 1'
+MIDI_CCPORT_NAME = 'Launch Control XL'
 
 MIDI_PPQ = 24
 STEPS_PER_BEAT = 2
 TICKS_PER_STEP = MIDI_PPQ // STEPS_PER_BEAT
 
 midi_queue = deque()
+cc_queue = deque()
 tick_counter = 0
 
+midi_cc_port = None
 midi_clock_port = None
 midi_out = None
 
@@ -21,14 +24,10 @@ previous_note = {}
 # Runs every time a midi message is received 
 
 def midi_clock_callback(message):
-    if message.type == 'clock':
-        midi_queue.append('clock')
-    elif message.type == 'cc':
-        midi_queue.append('cc')
-    elif message.type == 'start':
-        midi_queue.append('start')
-    elif message.type == 'stop':
-        midi_queue.append('stop')
+    midi_queue.append(message)
+
+def midi_cc_callback(message):
+    cc_queue.append(message)
 
 def collect_sequencers():
     global sequencers
@@ -39,6 +38,11 @@ def collect_sequencers():
     }
 
 def update_sequencers(depsgraph):
+    global midi_clock_port, midi_out
+
+    if not midi_out or not midi_clock_port:
+        return
+
     for ob in sequencers.values():
         ob_eval = ob.evaluated_get(depsgraph)
         attrs = ob_eval.data.attributes
@@ -48,7 +52,6 @@ def update_sequencers(depsgraph):
             continue
 
         note_on = bool(attrs['note_on'].data[0].value)
-        #note_retrig = bool(attrs['note_retrig'].data[0].value)
         note_value = int(attrs['note_value'].data[0].value)
         note_velocity = int(attrs['note_velocity'].data[0].value)
 
@@ -117,6 +120,17 @@ def advance_one_tick():
     depsgraph = bpy.context.evaluated_depsgraph_get()
     update_sequencers(depsgraph)
 
+def update_cc_objects(control, value):
+    #print(f"recieved CC: {control}, {value}")
+    cc_ob = bpy.data.collections['CC'].objects
+    if cc_ob:
+        cc_ob[control].location.y = 1/127 * value
+
+def reset_cc_objects():
+    cc_ob = bpy.data.collections['CC'].objects
+    if cc_ob:
+        for ob in cc_ob:
+            ob.location.y = 0
 
 def reset_transport():
     global tick_counter
@@ -133,14 +147,18 @@ def process_midi_queue():
 
     while midi_queue:
         msg = midi_queue.popleft()
-
-        if msg == 'clock':
+        if msg.type == 'clock':
             clocks += 1
-        elif msg == 'start':
+        elif msg.type == 'start':
             reset_transport()
-        elif msg == 'stop':
+        elif msg.type == 'stop':
             reset_transport()
             pass
+
+    while cc_queue:
+        msg = cc_queue.popleft()
+        if msg.type == 'control_change':
+            update_cc_objects(msg.control, msg.value)
 
     # Advance once per recieved clock
     for _ in range(clocks):
@@ -159,17 +177,17 @@ class MidiPanel(bpy.types.Panel):
     bl_category = "Midi"
 
     def draw(self, context):
-        global midi_clock_port, midi_out
+        global midi_clock_port, midi_out, midi_cc_port
 
         layout = self.layout
 
         row = layout.row()
-        row.operator("scene.start_midi_sync", icon='PLAY', text='Start MIDI')
-        row.operator("scene.stop_midi_sync", icon='CANCEL', text='Stop MIDI')
-
         if midi_clock_port or midi_out:
+            row.operator("scene.stop_midi_sync", icon='CANCEL', text='Stop MIDI')
             row = layout.row()
             row.operator("scene.midi_panic", icon='WARNING_LARGE', text='Panic')
+        else:
+            row.operator("scene.start_midi_sync", icon='PLAY', text='Start MIDI')
 
 # Operators
 
@@ -179,7 +197,7 @@ class StartMidiSync(bpy.types.Operator):
     bl_label = "Start MIDI Sync"
 
     def execute(self, context):
-        global midi_clock_port, midi_out
+        global midi_clock_port, midi_out, midi_cc_port
 
         collect_sequencers()
 
@@ -187,6 +205,9 @@ class StartMidiSync(bpy.types.Operator):
         midi_clock_port.callback = midi_clock_callback
 
         midi_out = mido.open_output(MIDI_PORT_NAME)
+
+        midi_cc_port = mido.open_input(MIDI_CCPORT_NAME)
+        midi_cc_port.callback = midi_cc_callback
 
         bpy.app.timers.register(process_midi_queue)
 
@@ -200,16 +221,21 @@ class StopMidiSync(bpy.types.Operator):
     bl_label = "Stop MIDI Sync"
 
     def execute(self, context):
-        global midi_clock_port, midi_out
+        global midi_clock_port, midi_out, midi_cc_port
 
         if midi_clock_port:
             midi_clock_port.close()
             midi_clock_port = None
 
         if midi_out:
-            midi_out.reset()
+            reset_transport()
             midi_out.close()
             midi_out = None
+
+        if midi_cc_port:
+            reset_cc_objects()
+            midi_cc_port.close()
+            midi_cc_port = None
 
         print("MIDI sync stopped")
 
